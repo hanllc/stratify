@@ -7,7 +7,31 @@ namespace stratcon
     {
         static void Main(string[] args)
         {
-            Console.WriteLine("Stratification Tree");
+            Console.WriteLine("");Console.WriteLine("");
+            Console.WriteLine("**************************");
+            Console.WriteLine(" Stratification Tree v0.1");
+            Console.WriteLine("**************************");
+            
+            var s0 =
+                new StratTerm[] {
+                    new StratTerm { variable = "x", condition = StratTermVal.gt, constant = "10"},
+                    new StratTerm { variable = "y", condition = StratTermVal.lte, constant = "20"},
+                    new StratTerm { variable = "z", condition = StratTermVal.gt, constant = "50"}
+                };
+            var p0 = 
+                new Dictionary<string,string> [] {
+                    new Dictionary<string, string>{ //T
+                        { "x", "11" },
+                        { "y", "20" },
+                        { "z", "51" }
+                    },
+                    new Dictionary<string, string>{ //F
+                        { "x", "10" },
+                        { "y", "21" },
+                        { "z", "50" }
+                    }
+                };
+
 
             var s1 =
                 new StratTerm[] {
@@ -33,149 +57,230 @@ namespace stratcon
                 };   
 
             var f = new Finder();
-            f.AddStataDef("s1",s1);
+
+            f.AddStataDef("s0",s0);
+
+            f.RenderToConsole();
+
+            var r0 = new string [] {
+                    f.FindStrata(p0[0]),
+                    f.FindStrata(p0[1]),
+            };
+            
         }
     }
 
 
     struct StratTermVal 
     {
-        static public readonly string gt =">";
-        static public readonly string lte ="<=";
-        static public readonly string inlist ="IN";
+        public const string gt =">";
+        public const string lte ="<=";
+        public const string inlist ="IN";
     }
 
     public struct StratTerm 
     {
         public string variable;
         public string condition;
-        public string constant;    
+        public string constant;
+        public string RenderAsString() 
+        { 
+            return variable + " " + condition + " " + constant;
+        } 
+
+        public bool TryEval(string val, out bool result)
+        {
+            double dval=0;
+            double dconst=0;
+            bool isValNumeric = Double.TryParse(val, out dval);
+            bool isConstNumeric = Double.TryParse(constant, out dconst);
+            result = false;
+
+            switch(condition) 
+            {
+                case StratTermVal.gt:
+                case StratTermVal.lte:
+                    if (isConstNumeric == false || isValNumeric == false)
+                        return false;
+                    else 
+                        goto default;
+                default:
+                    switch(condition) 
+                        {
+                            case StratTermVal.gt:
+                                result = dval > dconst;
+                                return true;
+                            case StratTermVal.lte:
+                                result = dval <= dconst;
+                                return true;
+                            case StratTermVal.inlist: //IN not yet supported 
+                            default:
+                                return false;
+                        }    
+            }
+        }     
     }
 
     
     public class StratTree 
     {
         private string refName;
-        private StratTerm term;
-        private StratTree left; //false
-        private StratTree right; //true
 
         public StratTree(string refname, StratTerm st)
         {
             refName = refname;
-            term = st;
-            left = null;
-            right = null;
+            Term = st;
+            Left = null;
+            Right = null;
         }
-        public StratTerm Term { get; }
-        public StratTree Left { get; }
-        public StratTree Right { get; }
+        public StratTerm Term { get; private set;}
+        public StratTree Left { get; private set;}
+        public StratTree Right { get; private set;}
 
-//http://crsouza.com/2012/01/04/decision-trees-in-c/
-//https://stackoverflow.com/questions/9860207/build-a-simple-high-performance-tree-data-structure-in-c-sharp
+        public bool TryEval(Dictionary<string,string> parcelData, out string strata)
+        {
+            StratTree target = this;
+            string val;
+            
+            while(true)
+            {
+                if ( parcelData.TryGetValue( target.Term.variable, out val ) )
+                {//there is a condition for this variable, we can check it
+                    bool result=false;
+                    if( target.Term.TryEval(val, out result))
+                    {//evaluation succeeded
+                        if (result) 
+                        {//eval'd to T 
+                            if (target.Right != null)
+                            {//go right
+                                target = target.Right;
+                                continue;
+                            }
+                            else
+                            {//leaf
+                                break;
+                            }
+                        }
+                        else
+                        {//eval'd to F
+                            if (target.Left != null)
+                            {//go left
+                                target = target.Left;
+                                continue;
+                            }
+                            else
+                            {//leaf
+                                break;
+                            }
+                        }
+                    }
+                    else
+                    {//evaluation failed
+                        strata=null;//error
+                        return false;
+                    }
+                    
+                }
+                else
+                {//nothing to check; truth
+                    if (target.Right != null)
+                    { //nothing to check; must be true; go right
+                        target = target.Right;
+                        continue;
+                    }
+                    else 
+                    {//nothing to check; hit leaf; done, return strata 
+                        break;
+                    }
+                }
+            }
+            strata = target.refName;
+            return true;
+        }
+
         public void Insert( StratTree node)
         {
             StratTree target = this;
             while(true) 
             {
-                if(node.term.variable == target.term.variable)
-                {
-                    if (node.term.condition != target.term.condition)
+                if(node.Term.variable == target.Term.variable)
+                {//case: same var
+
+                    if (node.Term.condition != target.Term.condition)
                     {//same var, diff cond
-                        if (target.right != null) 
+                        if (target.Right != null) 
                         {
-                            target = target.right;
+                            target = target.Right;
                             continue;
                         }
                         else
                         {
-                            target.right = node;
+                            target.Right = node;
                             break;
                         }
                     }
                     else
-                    {
-                        //same var, same cond
-                        if (node.term.condition == StratTermVal.gt ||
-                            node.term.condition == StratTermVal.lte)
+                    {//same var, same cond
+                        if (node.Term.condition == StratTermVal.gt ||
+                            node.Term.condition == StratTermVal.lte)
                         {//numer constant
                             double nodec=0.0;
                             double targc=0.0;
                             try 
                             { 
-                                nodec = Double.Parse(node.term.constant);
-                                targc = Double.Parse(target.term.constant); 
+                                nodec = Double.Parse(node.Term.constant);
+                                targc = Double.Parse(target.Term.constant); 
                             }
                             catch 
                             {
                                 break; //skip invalid - correctness requires aprior validation i.e no type op issues
                             }
-                            //which way? how to change tree?
-                            //case
-                            // X < 10   :s1  
-                            // X < 5    :s2 
-                            // X < 5 implies X < 10 since 5 < 10 
-                            //so insert X<5 as right child
-                            // X < 10 :s1
-                            //  R: X < 5 = s2
-                            //  L: X >= 5 = s1 (implicit?)
-
-                            // Y < 5    :s3 
-                            // Y < 10   :s4
-                            //Y<5 implies Y < 10 since 5<10
-                            //so insert Y < 10 as left child
-                            //    Y < 5    :s3 
-                            //      R: Y >= 10  :s3 (implicit?)
-                            //      L: Y < 10   :s4
-
-
-                            // Z < 5    :s5 
-                            //  R: Q < 2    : s6
-                            //  L: Q >= 2   : s5 (implicit?)
-
-                            // Z < 10   :s7
-                            //Z<5 implies Z<10 since 5<10
-                            //so insert Z<10 toward left
-                            //    Z < 5    :s5
-                            //      R: Q < 2   : s6 
-                             
-                            //      L: Z < 10    : s7
-                            //          R: s7
-                            //          L: s5 
-                            if (target.right != null) 
+                            if (target.Right != null) 
                             {
-                                target = target.right;
+                                target = target.Right;
                                 continue;
                             }
                             else
                             {
-                                target.right = node;
+                                target.Right = node;
                                 break;
                             }
                         }
                         else
-                        {//categ constant
-
+                        {//categ constant i.e. IN { A,B }
+                            //ignored
                         }
                     }  
                 }
                 else
-                {
-                    //diff var
-                    if (target.right != null) 
-                    {
-                        target = target.right;
+                {//case: diff var
+                    if (target.Right != null) 
+                    {//case: interior node
+                        target = target.Right;
                         continue;
                     }
                     else
-                    {
-                        target.right = node;
+                    {//case: leaf node
+                        target.Right = node;
                         break;
                     }
                 }
             }   
         }
+        public void Traverse( StratTree node, int level)
+        {
+            if (node.Left !=null)
+                Traverse(node.Left, level+1);
+
+            Console.WriteLine(node.Term.RenderAsString());
+
+
+            if (node.Right != null) 
+                Traverse(node.Right, level+1);
+
+        }        
     }
+    
 
     public class Finder 
     {
@@ -183,20 +288,36 @@ namespace stratcon
 
         public string FindStrata(Dictionary<string,string> parcelData)
         {
-            return null;
+            string strata="NoStrata";
+
+             if (root != null)
+             {
+                root.TryEval(parcelData, out strata);
+                return strata;
+             }
+             else 
+                return null;
         }
         public void AddStataDef(string name, StratTerm [] terms)
         {
             int cnt = terms.Length;
-            if (root==null && cnt !=0)
+            if (cnt<1) return;//return with no change for empty strata conditions
+
+            int start=0;
+            if (root==null)
+                root = new StratTree(name, terms[start++]);
+
+            for(int i=start; i<cnt; i++)
             {
-                root = new StratTree(name, terms[0]);
-                for(int i=1; i<cnt; i++)
-                {
-                    var n = new StratTree(name, terms[i]);
-                    root.Insert(n);
-                }
-            }             
+                var n = new StratTree(name, terms[i]);
+                root.Insert(n);
+            }
+        }
+
+        public void RenderToConsole()
+        {
+            if (root != null)
+                root.Traverse(root,0);
         }
     }
 }
