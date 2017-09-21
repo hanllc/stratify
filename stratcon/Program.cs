@@ -67,6 +67,7 @@ namespace stratcon
                     f.FindStrata(p0[1]),
             };
             
+            return;
         }
     }
 
@@ -103,7 +104,7 @@ namespace stratcon
                     if (isConstNumeric == false || isValNumeric == false)
                         return false;
                     else 
-                        goto default;
+                        goto default;//can't miss a shot to throw in goto in 2017 LOL
                 default:
                     switch(condition) 
                         {
@@ -137,16 +138,17 @@ namespace stratcon
         public StratTree Left { get; private set;}
         public StratTree Right { get; private set;}
 
-        public bool TryEval(Dictionary<string,string> parcelData, out string strata)
+        public bool TryEval(Dictionary<string,string> parcelData, out bool strataWasFound, out string resultStrata)
         {
             StratTree target = this;
             string val;
-            
+            bool result=false;
+
             while(true)
-            {
+            {//walk tree
                 if ( parcelData.TryGetValue( target.Term.variable, out val ) )
                 {//there is a condition for this variable, we can check it
-                    bool result=false;
+                    result=false;
                     if( target.Term.TryEval(val, out result))
                     {//evaluation succeeded
                         if (result) 
@@ -176,7 +178,9 @@ namespace stratcon
                     }
                     else
                     {//evaluation failed
-                        strata=null;//error
+                        resultStrata="";
+                        strataWasFound=false;
+                        //this is an error; something went wrong in the evaluation of a tree node ie. data type error in operations
                         return false;
                     }
                     
@@ -193,8 +197,16 @@ namespace stratcon
                         break;
                     }
                 }
-            }
-            strata = target.refName;
+            }//end tree walk
+
+            strataWasFound=result;
+            if (result)
+            //last node visit Eval'd to T 
+                resultStrata = target.refName;
+            else
+            //last node visit Eval'd to F
+                resultStrata = "";
+
             return true;
         }
 
@@ -288,11 +300,12 @@ namespace stratcon
 
         public string FindStrata(Dictionary<string,string> parcelData)
         {
-            string strata="NoStrata";
+            string strata="";
+            bool strataWasFound=false;
 
              if (root != null)
              {
-                root.TryEval(parcelData, out strata);
+                root.TryEval(parcelData, out strataWasFound, out strata);
                 return strata;
              }
              else 
