@@ -15,16 +15,12 @@ namespace stratcon
             
             var s0 =
                 new StratTerm[] {
-                    new StratTerm { variable = "x", condition = StratTermVal.gt, constant = "10"},
+                    new StratTerm { variable = "z", condition = StratTermVal.gt, constant = "50"},
                     new StratTerm { variable = "y", condition = StratTermVal.lte, constant = "20"},
-                    new StratTerm { variable = "z", condition = StratTermVal.gt, constant = "50"}
+                    new StratTerm { variable = "x", condition = StratTermVal.gt, constant = "10"}
+                    
                 };
-            var s1 =
-                new StratTerm[] {
-                    new StratTerm { variable = "q", condition = StratTermVal.gt, constant = "10"},
-                    new StratTerm { variable = "y", condition = StratTermVal.lte, constant = "30"},
-                    new StratTerm { variable = "z", condition = StratTermVal.lte, constant = "20"}
-                };    
+                
             var p0 = 
                 new Dictionary<string,string> [] {
                     new Dictionary<string, string>{ //T
@@ -36,6 +32,26 @@ namespace stratcon
                         { "x", "10" },
                         { "y", "21" },
                         { "z", "50" }
+                    }
+                };
+
+            var s1 =
+                new StratTerm[] {
+                    new StratTerm { variable = "q", condition = StratTermVal.gt, constant = "10"},
+                    new StratTerm { variable = "z", condition = StratTermVal.lte, constant = "30"},
+                    new StratTerm { variable = "x", condition = StratTermVal.lte, constant = "20"}
+                };
+            var p1 = 
+                new Dictionary<string,string> [] {
+                    new Dictionary<string, string>{ //T
+                        { "q", "11" },
+                        { "z", "30" },
+                        { "x", "20" }
+                    },
+                    new Dictionary<string, string>{ //F
+                        { "q", "10" },
+                        { "z", "31" },
+                        { "x", "21" }
                     }
                 };
 
@@ -63,19 +79,32 @@ namespace stratcon
                     new StratTerm { variable = "usd", condition = StratTermVal.inlist, constant = "A,B"}
                 };   
 */
-            var f = new Finder();
+            var f0 = new Finder();
 
-            f.AddStataDef("s0",s0);
+            f0.AddStataDef("s0",s0);
 
-            f.RenderToConsole();
+            f0.RenderToConsole("s0");
 
             var r0 = new string [] {
-                    f.FindStrata(p0[0]),
-                    f.FindStrata(p0[1]),
+                    f0.FindStrata(p0[0]),
+                    f0.FindStrata(p0[1]),
             };
             
             Debug.Assert(r0[0] == "s0", "strata s1 was not returned");
             Debug.Assert(r0[1] == null, "a null strata should have been returned");
+
+            var f1 = new Finder();
+            f1.AddStataDef("s1",s1);
+
+            f1.RenderToConsole("s1");
+
+            var r1 = new string [] {
+                    f1.FindStrata(p1[0]),
+                    f1.FindStrata(p1[1]),
+            };
+
+            Debug.Assert(r1[0] == "s1", "strata s1 was not returned");
+            Debug.Assert(r1[1] == null, "a null strata should have been returned");
 
             return;
         }
@@ -129,7 +158,11 @@ namespace stratcon
                                 return false;
                         }    
             }
-        }     
+        } 
+        /*public StratTerm MakeCopy() 
+        {
+            return new StratTerm { condition = this.condition, constant = this.constant, variable = this.variable};
+        } */   
     }
 
     
@@ -221,6 +254,97 @@ namespace stratcon
         }
 
         public void Insert( StratTree node)
+        {
+            StratTree target = this;
+
+            //DRY utils
+            void SwapNodeData()
+            {
+                StratTerm t = node.Term; //struct so copy by value
+                node.Term = target.Term;
+                target.Term = t;  
+                string n = node.refName;
+                node.refName = target.refName;
+                target.refName = n;
+            }
+            
+            while(true) 
+            {
+                if(node.Term.variable == target.Term.variable)
+                {//case: same var
+
+                    if (node.Term.condition != target.Term.condition)
+                    {//same var, diff cond
+                        if (target.Right != null) 
+                        {
+                            target = target.Right;
+                            continue;
+                        }
+                        else
+                        {
+                            target.Right = node;
+                            break;
+                        }
+                    }
+                    else
+                    {//same var, same cond
+                        if (node.Term.condition == StratTermVal.gt ||
+                            node.Term.condition == StratTermVal.lte)
+                        {//numer constant
+                            double nodec=0.0;
+                            double targc=0.0;
+                            try 
+                            { 
+                                nodec = Double.Parse(node.Term.constant);
+                                targc = Double.Parse(target.Term.constant); 
+                            }
+                            catch 
+                            {
+                                break; //skip invalid - correctness requires aprior validation i.e no type op issues
+                            }
+                            if (target.Right != null) 
+                            {
+                                target = target.Right;
+                                continue;
+                            }
+                            else
+                            {
+                                target.Right = node;
+                                break;
+                            }
+                        }
+                        else
+                        {//categ constant i.e. IN { A,B }
+                            //ignored
+                        }
+                    }  
+                }
+                else
+                {//case: diff var
+                    if (target.Right != null) 
+                    {//case: interior node
+                        if (String.Compare(target.Term.variable, node.Term.variable) > 0)
+                        //target.refName follows node.refName in the sort order
+                            SwapNodeData();
+                        
+                        target = target.Right;
+                        continue;
+                    }
+                    else
+                    {//case: leaf node
+                        if (String.Compare(target.Term.variable, node.Term.variable) > 0)
+                        //target.refName follows node.refName in the sort order
+                            SwapNodeData();
+
+                        target.Right = node;
+                        break;
+                    }
+                }
+            }   
+        }
+
+        
+        public void InsertSingleStrata( StratTree node) //for verification
         {
             StratTree target = this;
             while(true) 
@@ -334,8 +458,14 @@ namespace stratcon
             }
         }
 
-        public void RenderToConsole()
+        public void RenderToConsole(string title)
         {
+            if(title!=null)
+                {
+                    Console.WriteLine("");Console.WriteLine("");
+                    Console.WriteLine(title);Console.WriteLine("");
+                    
+                }
             if (root != null)
                 root.Traverse(root,0);
         }
