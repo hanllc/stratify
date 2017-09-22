@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 
 namespace stratcon
 {
@@ -18,6 +19,12 @@ namespace stratcon
                     new StratTerm { variable = "y", condition = StratTermVal.lte, constant = "20"},
                     new StratTerm { variable = "z", condition = StratTermVal.gt, constant = "50"}
                 };
+            var s1 =
+                new StratTerm[] {
+                    new StratTerm { variable = "q", condition = StratTermVal.gt, constant = "10"},
+                    new StratTerm { variable = "y", condition = StratTermVal.lte, constant = "30"},
+                    new StratTerm { variable = "z", condition = StratTermVal.lte, constant = "20"}
+                };    
             var p0 = 
                 new Dictionary<string,string> [] {
                     new Dictionary<string, string>{ //T
@@ -32,7 +39,7 @@ namespace stratcon
                     }
                 };
 
-
+/* 
             var s1 =
                 new StratTerm[] {
                     new StratTerm { variable = "lot_sqft", condition = StratTermVal.gt, constant = "5000"},
@@ -55,7 +62,7 @@ namespace stratcon
                     new StratTerm { variable = "mfla_sqft", condition = StratTermVal.lte, constant = "2200"},
                     new StratTerm { variable = "usd", condition = StratTermVal.inlist, constant = "A,B"}
                 };   
-
+*/
             var f = new Finder();
 
             f.AddStataDef("s0",s0);
@@ -67,6 +74,9 @@ namespace stratcon
                     f.FindStrata(p0[1]),
             };
             
+            Debug.Assert(r0[0] == "s0", "strata s1 was not returned");
+            Debug.Assert(r0[1] == null, "a null strata should have been returned");
+
             return;
         }
     }
@@ -178,7 +188,7 @@ namespace stratcon
                     }
                     else
                     {//evaluation failed
-                        resultStrata="";
+                        resultStrata=null;
                         strataWasFound=false;
                         //this is an error; something went wrong in the evaluation of a tree node ie. data type error in operations
                         return false;
@@ -205,7 +215,7 @@ namespace stratcon
                 resultStrata = target.refName;
             else
             //last node visit Eval'd to F
-                resultStrata = "";
+                resultStrata = null;
 
             return true;
         }
@@ -300,16 +310,13 @@ namespace stratcon
 
         public string FindStrata(Dictionary<string,string> parcelData)
         {
-            string strata="";
+            string strata=null;
             bool strataWasFound=false;
 
              if (root != null)
-             {
                 root.TryEval(parcelData, out strataWasFound, out strata);
-                return strata;
-             }
-             else 
-                return null;
+
+             return strata;
         }
         public void AddStataDef(string name, StratTerm [] terms)
         {
