@@ -55,6 +55,15 @@ namespace stratcon
                     }
                 };
 
+            var s2 =
+                new StratTerm[] {
+                    s1[0],
+                    s1[1],
+                    new StratTerm { variable = "x", condition = StratTermVal.gt, constant = "20"}
+                };
+            var p2 = 
+                p1;
+
 /* 
             var s1 =
                 new StratTerm[] {
@@ -105,6 +114,18 @@ namespace stratcon
 
             Debug.Assert(r1[0] == "s1", "strata s1 was not returned");
             Debug.Assert(r1[1] == null, "a null strata should have been returned");
+
+            var f2 = new Finder();
+            f2.AddStataDef("s2",s2);
+
+            f2.RenderToConsole("s2");
+
+
+            var r2 = new string [] {
+                    f2.FindStrata(p2[0]),
+                    f2.FindStrata(p2[1]),
+            };
+
 
             return;
         }
@@ -158,11 +179,7 @@ namespace stratcon
                                 return false;
                         }    
             }
-        } 
-        /*public StratTerm MakeCopy() 
-        {
-            return new StratTerm { condition = this.condition, constant = this.constant, variable = this.variable};
-        } */   
+        }   
     }
 
     
@@ -176,11 +193,13 @@ namespace stratcon
             Term = st;
             Left = null;
             Right = null;
+            Parent = null;
         }
         public StratTerm Term { get; private set;}
         public StratTree Left { get; private set;}
         public StratTree Right { get; private set;}
-
+        public StratTree Parent { get; private set;}
+        
         public bool TryEval(Dictionary<string,string> parcelData, out bool strataWasFound, out string resultStrata)
         {
             StratTree target = this;
@@ -253,7 +272,84 @@ namespace stratcon
             return true;
         }
 
-        public void Insert( StratTree node)
+        public void InsertAtTop( StratTree node)
+        {//insert a new decision tree node at the top
+            StratTree target = this;
+            Debug.Assert( node.Left == null && node.Right == null, "Not leaf node passed as node");
+            Debug.Assert( target.Parent == null , "Called on not root node");
+
+            //DRY locals
+            void SwapNodeData()
+            {
+                StratTerm t = node.Term; //struct so copy by value
+                node.Term = target.Term;
+                target.Term = t;  
+                string n = node.refName;
+                node.refName = target.refName;
+                target.refName = n;
+            }
+            
+            void SwapNodeLinks()
+            {//node is the initial root, target is now the item being inserted on top, since SwapNodeData is called before this
+                node.Parent = target;
+                node.Right = target.Right;
+                node.Left = target.Left;
+                target.Right = node;
+                target.Left = node.Copy();
+            }
+
+
+            if (String.Compare(target.Term.variable, node.Term.variable) < 0)
+            {//target-var precedes node-var in the sort order
+                SwapNodeData();
+                SwapNodeLinks();
+            }
+            else if(String.Compare(target.Term.variable, node.Term.variable) == 0)
+            {//same var
+                SwapNodeData();
+                SwapNodeLinks();
+                
+                /* 
+                    the <= / lte are sorted in order of decreasing constant
+                    x < 10
+                    x < 5
+
+                **
+                    the > / gt are sorted in order of increasing constant
+                    x > 8
+                    x > 2
+
+                ** 
+                    x < 10 
+                    x > 8 
+                    x < 5
+                    x > 2
+                */
+            }
+            else throw new Exception("Variable names must be inserted in Sorted Order"); 
+        }
+
+        public StratTree Copy()
+        {
+            StratTree target = this;
+            StratTree copy = new StratTree(target.refName, target.Term);
+
+            if (target.Right != null)
+            {
+                copy.Right = target.Right.Copy();
+                copy.Right.Parent = copy;
+            }
+
+            if(target.Left != null)
+            {
+                copy.Left = target.Left.Copy();
+                copy.Left.Parent = copy;
+            }
+
+            return copy;
+        }
+
+        public void InsertSort( StratTree node)
         {
             StratTree target = this;
 
@@ -324,19 +420,42 @@ namespace stratcon
                     if (target.Right != null) 
                     {//case: interior node
                         if (String.Compare(target.Term.variable, node.Term.variable) > 0)
-                        //target.refName follows node.refName in the sort order
-                            SwapNodeData();
+                        {//target.refName follows node.refName in the sort order
+                            target = target.Right;
+                        }
                         
-                        target = target.Right;
+                        else
+                        {
+                            target = target.Right;
+                        }
+
                         continue;
                     }
                     else
                     {//case: leaf node
                         if (String.Compare(target.Term.variable, node.Term.variable) > 0)
-                        //target.refName follows node.refName in the sort order
-                            SwapNodeData();
-
-                        target.Right = node;
+                        {//target.refName follows node.refName in the sort order
+                        // so switch target and node i.e. target ends up being the right leaf
+                            if (target.Parent == null)
+                            {//data swap if target is root
+                                SwapNodeData();
+                                target.Right = node;
+                                node.Parent = target;    
+                            }
+                            else
+                            {
+                                target.Parent.Right = node;
+                                node.Parent = target.Parent;
+                                node.Right = target;
+                            }
+                            
+                        }
+                        else
+                        {//just add as a right leaf of target
+                            target.Right = node;
+                            node.Parent = target;
+                        }
+                        
                         break;
                     }
                 }
@@ -427,10 +546,16 @@ namespace stratcon
         }        
     }
     
+    public interface IFinder
+    {
+        string FindStrata(Dictionary<string,string> parcelData);
+        void AddStataDef(string name, StratTerm [] terms);
+    }
 
     public class Finder 
     {
         private StratTree root = null;
+        private List<StratTerm> allStrata = new List<StratTerm>(); 
 
         public string FindStrata(Dictionary<string,string> parcelData)
         {
@@ -444,6 +569,62 @@ namespace stratcon
         }
         public void AddStataDef(string name, StratTerm [] terms)
         {
+            int termCompare(StratTerm x, StratTerm y)
+            {
+                bool IsNumeric(string value, out double result)
+                {
+                    return Double.TryParse(value, out result);
+                }
+
+                int d = x.variable.CompareTo(y.variable); 
+
+                if (d != 0) return d;
+                else 
+                {
+                    double xd, yd;
+                    bool isXaNumeric = IsNumeric(x.constant, out xd );
+                    bool isYaNumeric = IsNumeric(y.constant, out yd );
+                    switch(x.condition) 
+                    {
+                        case StratTermVal.gt:
+                        case StratTermVal.lte:
+                            Debug.Assert( isXaNumeric == false, "Type error: expected a 'constant' double for <= and > operands" );
+                            if ( isXaNumeric )
+                                goto default;
+                            else throw new FormatException("Type error: expected a 'constant' double for <= and > operands");   
+                        default:                        
+                            switch(y.condition) 
+                                {
+                                    case StratTermVal.gt:
+                                    case StratTermVal.lte:
+                                        Debug.Assert( isYaNumeric == false, "Type error: expected a 'constant' double for <= and > operands" );
+                                        if ( isYaNumeric )
+                                            goto default;
+                                        else throw new FormatException("Type error: expected a 'constant' double for <= and > operands");
+                                    default:
+                                        if ( xd - yd < 0.0 - 0.00000001)
+                                            return -1;
+                                        else if (xd - yd > 0.0 + 0.00000001)
+                                            return 1;
+                                        else 
+                                            return 0;                      
+                                }
+                    }
+
+                }
+            }
+
+            var l = new List<StratTerm>(terms);
+            l.Sort( termCompare );
+        }
+        public void ProcessAllStrataDefs()
+        {
+            string name;
+            StratTerm [] terms;
+            terms = new StratTerm[4];
+            name = "";
+
+            //above all hacked to compile
             int cnt = terms.Length;
             if (cnt<1) return;//return with no change for empty strata conditions
 
@@ -454,17 +635,18 @@ namespace stratcon
             for(int i=start; i<cnt; i++)
             {
                 var n = new StratTree(name, terms[i]);
-                root.Insert(n);
+                root.InsertSingleStrata(n);
             }
         }
+
+
 
         public void RenderToConsole(string title)
         {
             if(title!=null)
                 {
                     Console.WriteLine("");Console.WriteLine("");
-                    Console.WriteLine(title);Console.WriteLine("");
-                    
+                    Console.WriteLine(title);Console.WriteLine("");                   
                 }
             if (root != null)
                 root.Traverse(root,0);
